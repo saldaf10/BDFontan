@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Estudiante {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  codigoInterno  String?                @map("codigo_interno") @db.VarChar(20)
+  nombreCompleto String                 @map("nombre_completo") @db.VarChar(200)
+  grado          String?                @db.VarChar(20)
+  nivel          String?                @db.VarChar(20)
+  anioIngreso    Int?                   @map("anio_ingreso")
+  origenArchivo  String?                @map("origen_archivo") @db.VarChar(50)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  acudientes     EstudianteAcudiente[]
+  asistencias    AsistenciaEvento[]
+  prospectos     Prospecto[]
+
+  @@index([nombreCompleto, grado])
+  @@map("estudiante")
+}
+
+model Acudiente {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombreCompleto String                 @map("nombre_completo") @db.VarChar(200)
+  email          String?                @db.VarChar(200)
+  telefono       String?                @db.VarChar(30)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  estudiantes    EstudianteAcudiente[]
+
+  @@index([email])
+  @@map("acudiente")
+}
+
+model EstudianteAcudiente {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idEstudiante String     @map("id_estudiante") @db.Uuid
+  idAcudiente  String     @map("id_acudiente") @db.Uuid
+  relacion     String?    @db.VarChar(20)
+  orden        Int?
+  estudiante   Estudiante @relation(fields: [idEstudiante], references: [id], onDelete: Cascade)
+  acudiente    Acudiente  @relation(fields: [idAcudiente], references: [id], onDelete: Cascade)
+
+  @@unique([idEstudiante, idAcudiente])
+  @@map("estudiante_acudiente")
+}
+
+model CanalLlegadaCat {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  valorOriginal   String  @unique @map("valor_original") @db.VarChar(500)
+  categoria       String  @db.VarChar(50)
+  referidoNombre  String? @map("referido_nombre") @db.VarChar(200)
+
+  @@map("canal_llegada_cat")
+}
+
+model Prospecto {
+  id                       String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idEstudiante             String?            @map("id_estudiante") @db.Uuid
+  anioProceso              Int                @map("anio_proceso")
+  canalLlegada             String?            @map("canal_llegada") @db.VarChar(50)
+  canalLlegadaOriginal     String?            @map("canal_llegada_original") @db.VarChar(500)
+  referidoNombre           String?            @map("referido_nombre") @db.VarChar(200)
+  asesor                   String?            @db.VarChar(100)
+  gradoPrimario            String?            @map("grado_primario") @db.VarChar(20)
+  gradoSecundario          String?            @map("grado_secundario") @db.VarChar(20)
+  nivel                    String?            @db.VarChar(20)
+  estadoProcesoCat         String?            @map("estado_proceso_cat") @db.VarChar(30)
+  estadoProcesoOriginal    String?            @map("estado_proceso_original") @db.Text
+  observaciones            String?            @db.Text
+  flagOk                   String?            @map("flag_ok") @db.VarChar(10)
+  contactoMejoresColegios  Boolean            @default(false) @map("contacto_mejores_colegios")
+  mesCita                  String?            @map("mes_cita") @db.VarChar(20)
+  origenArchivo            String?            @map("origen_archivo") @db.VarChar(50)
+  createdAt                DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  estudiante               Estudiante?        @relation(fields: [idEstudiante], references: [id])
+  citasInformacion         CitaInformacion[]
+  seguimientos             Seguimiento[]
+  etapas                   EtapaProceso[]
+
+  @@index([anioProceso, nivel])
+  @@index([canalLlegada])
+  @@index([estadoProcesoCat])
+  @@map("prospecto")
+}
+
+model CitaInformacion {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idProspecto   String    @map("id_prospecto") @db.Uuid
+  fecha         DateTime? @db.Date
+  asistio       Boolean?
+  tipoContacto  String?   @map("tipo_contacto") @db.VarChar(50)
+  observaciones String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  prospecto     Prospecto @relation(fields: [idProspecto], references: [id], onDelete: Cascade)
+
+  @@index([fecha])
+  @@map("cita_informacion")
+}
+
+model Seguimiento {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idProspecto     String    @map("id_prospecto") @db.Uuid
+  numeroContacto  Int       @map("numero_contacto")
+  fecha           DateTime? @db.Date
+  medio           String?   @db.VarChar(100)
+  observacion     String?   @db.Text
+  fechaNacimiento DateTime? @map("fecha_nacimiento") @db.Date
+  edad            Decimal?  @db.Decimal(5, 2)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  prospecto       Prospecto @relation(fields: [idProspecto], references: [id], onDelete: Cascade)
+
+  @@index([idProspecto, numeroContacto])
+  @@map("seguimiento")
+}
+
+model EtapaProceso {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idProspecto  String    @map("id_prospecto") @db.Uuid
+  etapa        String    @db.VarChar(30)
+  fecha        DateTime? @db.Date
+  completada   Boolean   @default(false)
+  admitido     Boolean?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  prospecto    Prospecto @relation(fields: [idProspecto], references: [id], onDelete: Cascade)
+
+  @@index([etapa, fecha])
+  @@map("etapa_proceso")
+}
+
+model EventoInstitucional {
+  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre       String             @db.VarChar(200)
+  fecha        DateTime           @db.Date
+  tipo         String?            @db.VarChar(50)
+  nivel        String?            @db.VarChar(20)
+  anioEscolar  String?            @map("anio_escolar") @db.VarChar(10)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  asistencias  AsistenciaEvento[]
+
+  @@unique([nombre, fecha, nivel, anioEscolar])
+  @@map("evento_institucional")
+}
+
+model AsistenciaEvento {
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idEstudiante String              @map("id_estudiante") @db.Uuid
+  idEvento     String              @map("id_evento") @db.Uuid
+  resultado    String              @db.VarChar(10)
+  excusa       String?             @db.Text
+  estudiante   Estudiante          @relation(fields: [idEstudiante], references: [id], onDelete: Cascade)
+  evento       EventoInstitucional @relation(fields: [idEvento], references: [id], onDelete: Cascade)
+
+  @@unique([idEstudiante, idEvento])
+  @@map("asistencia_evento")
+}
