@@ -15,6 +15,10 @@ import { FunnelViz } from "@/components/FunnelViz";
 import { MiniBarRow } from "@/components/SvgBarChart";
 import { ComparativoAnual } from "@/components/ComparativoAnual";
 import { formatNumber } from "@/lib/format";
+import {
+  cumulativeFlagsFromCompletedStages,
+  stagesSetFromRows
+} from "@/lib/funnelLogic";
 
 export const dynamic = "force-dynamic";
 
@@ -98,13 +102,11 @@ async function getAnalisisData() {
     }
     const row = embudoMap.get(key)!;
     row.total_citas++;
-    for (const e of p.etapas) {
-      if (!e.completada) continue;
-      if (e.etapa === "INICIO_PROCESO") row.inicio_proceso++;
-      if (e.etapa === "PRUEBAS") row.pruebas++;
-      if (e.etapa === "OBSERVACION") row.observacion++;
-      if (e.etapa === "MATRICULA") row.matricula++;
-    }
+    const flags = cumulativeFlagsFromCompletedStages(stagesSetFromRows(p.etapas));
+    if (flags.inicio) row.inicio_proceso++;
+    if (flags.pruebas) row.pruebas++;
+    if (flags.observacion) row.observacion++;
+    if (flags.matricula) row.matricula++;
   }
 
   const embudoRows: EmbudoRow[] = [...embudoMap.values()]
@@ -229,7 +231,7 @@ async function getAnalisisData() {
     const a = asesorMap.get(p.asesor)!;
     a.total++;
     if (p.etapas.some((e) => e.etapa === "MATRICULA" && e.completada)) a.matriculados++;
-    if (p.etapas.some((e) => e.etapa === "INICIO_PROCESO" && e.completada)) a.inicio++;
+    if (cumulativeFlagsFromCompletedStages(stagesSetFromRows(p.etapas)).inicio) a.inicio++;
   }
 
   const asesorRows = [...asesorMap.entries()]

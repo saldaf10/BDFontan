@@ -4,10 +4,13 @@
  * Devuelve el embudo de conversión por año × nivel:
  * total citas, inicio_proceso, pruebas, observacion, matricula
  *
+ * Conteos acumulativos: quien llegó a una etapa posterior cuenta también en las anteriores.
+ *
  * Útil para comparar 2023 vs 2024 vs 2025 vs 2026 en el frontend.
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { aggregateCumulativeByGroupKey, nivelKey } from "@/lib/funnelLogic";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +22,12 @@ export async function GET() {
     orderBy: [{ anioProceso: "asc" }, { nivel: "asc" }]
   });
 
-  // 2. Etapas completadas por año + nivel (para contar funnel stages)
+  // 2. Etapas completadas → embudo lógico por año × nivel (por prospecto, luego acumulativo)
   const etapasCompletadas = await prisma.etapaProceso.findMany({
     where: { completada: true },
     select: {
       etapa: true,
+      idProspecto: true,
       prospecto: {
         select: {
           anioProceso: true,
@@ -33,25 +37,18 @@ export async function GET() {
     }
   });
 
-  // 3. Construir mapa: "anio|nivel" → { inicio, pruebas, observacion, matricula }
-  type EtapaMap = Record<string, { inicio: number; pruebas: number; observacion: number; matricula: number }>;
-  const etapaMap: EtapaMap = {};
+  const etapaMap = aggregateCumulativeByGroupKey(
+    etapasCompletadas.map((item) => ({
+      idProspecto: item.idProspecto,
+      etapa: item.etapa,
+      groupKey: `${item.prospecto.anioProceso}|${nivelKey(item.prospecto.nivel)}`
+    }))
+  );
 
-  for (const item of etapasCompletadas) {
-    const key = `${item.prospecto.anioProceso}|${item.prospecto.nivel ?? "SIN_NIVEL"}`;
-    if (!etapaMap[key]) {
-      etapaMap[key] = { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
-    }
-    if (item.etapa === "INICIO_PROCESO") etapaMap[key].inicio++;
-    if (item.etapa === "PRUEBAS") etapaMap[key].pruebas++;
-    if (item.etapa === "OBSERVACION") etapaMap[key].observacion++;
-    if (item.etapa === "MATRICULA") etapaMap[key].matricula++;
-  }
-
-  // 4. Combinar
+  // 3. Combinar
   const rows = totalesPorAnioNivel.map((row) => {
-    const key = `${row.anioProceso}|${row.nivel ?? "SIN_NIVEL"}`;
-    const etapas = etapaMap[key] ?? { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
+    const key = `${row.anioProceso}|${nivelKey(row.nivel)}`;
+    const etapas = etapaMap.get(key) ?? { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
     const total = row._count._all;
     return {
       anio: row.anioProceso,

@@ -13,6 +13,12 @@ import { inputClass } from "@/components/FormField";
 import { ESTADOS_PROCESO, NIVELES } from "@/lib/catalogs";
 import { FunnelViz } from "@/components/FunnelViz";
 import { ComparativoAnual } from "@/components/ComparativoAnual";
+import {
+  aggregateCumulativeByGroupKey,
+  cumulativeFlagsFromCompletedStages,
+  nivelKey,
+  stagesSetFromRows
+} from "@/lib/funnelLogic";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +53,19 @@ async function getProspectosReporte(where: Prisma.ProspectoWhereInput) {
   });
 }
 
-function countStage(prospectos: ProspectoReporte[], etapa: string) {
-  return prospectos.filter((p) => p.etapas.some((e) => e.etapa === etapa && e.completada)).length;
+function embudoCumulativeCounts(prospectos: ProspectoReporte[]) {
+  let inicio = 0;
+  let pruebas = 0;
+  let observacion = 0;
+  let matricula = 0;
+  for (const p of prospectos) {
+    const f = cumulativeFlagsFromCompletedStages(stagesSetFromRows(p.etapas));
+    if (f.inicio) inicio++;
+    if (f.pruebas) pruebas++;
+    if (f.observacion) observacion++;
+    if (f.matricula) matricula++;
+  }
+  return { inicio, pruebas, observacion, matricula };
 }
 
 function groupByField(
@@ -89,21 +106,22 @@ async function buildComparativoRows() {
   });
   const etapas = await prisma.etapaProceso.findMany({
     where: { completada: true },
-    select: { etapa: true, prospecto: { select: { anioProceso: true, nivel: true } } }
+    select: {
+      etapa: true,
+      idProspecto: true,
+      prospecto: { select: { anioProceso: true, nivel: true } }
+    }
   });
-  type EMap = Record<string, { inicio: number; pruebas: number; observacion: number; matricula: number }>;
-  const eMap: EMap = {};
-  for (const e of etapas) {
-    const k = `${e.prospecto.anioProceso}|${e.prospecto.nivel ?? ""}`;
-    if (!eMap[k]) eMap[k] = { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
-    if (e.etapa === "INICIO_PROCESO") eMap[k].inicio++;
-    if (e.etapa === "PRUEBAS") eMap[k].pruebas++;
-    if (e.etapa === "OBSERVACION") eMap[k].observacion++;
-    if (e.etapa === "MATRICULA") eMap[k].matricula++;
-  }
+  const eMap = aggregateCumulativeByGroupKey(
+    etapas.map((e) => ({
+      idProspecto: e.idProspecto,
+      etapa: e.etapa,
+      groupKey: `${e.prospecto.anioProceso}|${nivelKey(e.prospecto.nivel)}`
+    }))
+  );
   return totales.map((row) => {
-    const k = `${row.anioProceso}|${row.nivel ?? ""}`;
-    const e = eMap[k] ?? { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
+    const k = `${row.anioProceso}|${nivelKey(row.nivel)}`;
+    const e = eMap.get(k) ?? { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
     return {
       anio: row.anioProceso,
       nivel: row.nivel,
@@ -145,10 +163,11 @@ export default async function ReportesPage({ searchParams }: ReportesPageProps) 
   ]);
 
   const total = prospectos.length;
-  const inicio = countStage(prospectos, "INICIO_PROCESO");
-  const pruebas = countStage(prospectos, "PRUEBAS");
-  const observacion = countStage(prospectos, "OBSERVACION");
-  const matricula = countStage(prospectos, "MATRICULA");
+  const cum = embudoCumulativeCounts(prospectos);
+  const inicio = cum.inicio;
+  const pruebas = cum.pruebas;
+  const observacion = cum.observacion;
+  const matricula = cum.matricula;
   const query = buildQuery(params);
 
   const byCanal = groupByField(prospectos, "canalLlegada").slice(0, 15);

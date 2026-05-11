@@ -8,6 +8,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cumulativeFlagsFromCompletedStages, stagesSetFromRows } from "@/lib/funnelLogic";
 
 export const dynamic = "force-dynamic";
 
@@ -61,10 +62,11 @@ export async function GET(request: NextRequest) {
     const d = map.get(asesor)!;
     d.total++;
 
-    if (p.etapas.some((e) => e.etapa === "INICIO_PROCESO" && e.completada)) d.inicio++;
-    if (p.etapas.some((e) => e.etapa === "PRUEBAS" && e.completada)) d.pruebas++;
-    if (p.etapas.some((e) => e.etapa === "OBSERVACION" && e.completada)) d.observacion++;
-    if (p.etapas.some((e) => e.etapa === "MATRICULA" && e.completada)) d.matricula++;
+    const f = cumulativeFlagsFromCompletedStages(stagesSetFromRows(p.etapas));
+    if (f.inicio) d.inicio++;
+    if (f.pruebas) d.pruebas++;
+    if (f.observacion) d.observacion++;
+    if (f.matricula) d.matricula++;
 
     const nivel = p.nivel ?? "SIN_NIVEL";
     d.porNivel[nivel] = (d.porNivel[nivel] ?? 0) + 1;

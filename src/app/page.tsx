@@ -5,6 +5,11 @@ import { MiniBarRow } from "@/components/SvgBarChart";
 import { ComparativoAnual } from "@/components/ComparativoAnual";
 import { prisma } from "@/lib/prisma";
 import { formatNumber } from "@/lib/format";
+import {
+  aggregateGlobalCumulative,
+  aggregateCumulativeByGroupKey,
+  nivelKey
+} from "@/lib/funnelLogic";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +20,6 @@ async function getDashboardData() {
     totalEventos,
     matriculadosEtapa,
     prospectosPorAnio,
-    etapasCompletadas,
     canalesTop,
     prospectos2026Activos,
     seguimientos2026
@@ -31,13 +35,6 @@ async function getDashboardData() {
       _count: { _all: true },
       orderBy: { anioProceso: "asc" },
       having: { anioProceso: { _min: { gte: 2023 } } }
-    }),
-
-    // Etapas completadas (para embudo global)
-    prisma.etapaProceso.groupBy({
-      by: ["etapa"],
-      where: { completada: true },
-      _count: { _all: true }
     }),
 
     // Top canales con conversión
@@ -68,15 +65,20 @@ async function getDashboardData() {
     })
   ]);
 
-  // Embudo global (todos los años)
-  const etapaMap = new Map(etapasCompletadas.map((e) => [e.etapa, e._count._all]));
+  const etapasFilas = await prisma.etapaProceso.findMany({
+    where: { completada: true },
+    select: { idProspecto: true, etapa: true }
+  });
+  const embudoC = aggregateGlobalCumulative(etapasFilas);
+
+  // Embudo global (todos los años): conteo acumulativo (matrícula cuenta en etapas previas)
   const totalCitas = totalProspectos;
   const embudoGlobal = [
     { label: "Citas de información", value: totalCitas },
-    { label: "Inicio del proceso", value: etapaMap.get("INICIO_PROCESO") ?? 0 },
-    { label: "Pruebas", value: etapaMap.get("PRUEBAS") ?? 0 },
-    { label: "Observación", value: etapaMap.get("OBSERVACION") ?? 0 },
-    { label: "Matrícula", value: etapaMap.get("MATRICULA") ?? 0 }
+    { label: "Inicio del proceso", value: embudoC.inicio },
+    { label: "Pruebas", value: embudoC.pruebas },
+    { label: "Observación", value: embudoC.observacion },
+    { label: "Matrícula", value: embudoC.matricula }
   ];
 
   // Canales con matriculados
@@ -139,24 +141,22 @@ async function buildComparativo() {
     where: { completada: true },
     select: {
       etapa: true,
+      idProspecto: true,
       prospecto: { select: { anioProceso: true, nivel: true } }
     }
   });
 
-  type EMap = Record<string, { inicio: number; pruebas: number; observacion: number; matricula: number }>;
-  const eMap: EMap = {};
-  for (const e of etapas) {
-    const k = `${e.prospecto.anioProceso}|${e.prospecto.nivel ?? ""}`;
-    if (!eMap[k]) eMap[k] = { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
-    if (e.etapa === "INICIO_PROCESO") eMap[k].inicio++;
-    if (e.etapa === "PRUEBAS") eMap[k].pruebas++;
-    if (e.etapa === "OBSERVACION") eMap[k].observacion++;
-    if (e.etapa === "MATRICULA") eMap[k].matricula++;
-  }
+  const byGroup = aggregateCumulativeByGroupKey(
+    etapas.map((e) => ({
+      idProspecto: e.idProspecto,
+      etapa: e.etapa,
+      groupKey: `${e.prospecto.anioProceso}|${nivelKey(e.prospecto.nivel)}`
+    }))
+  );
 
   return totales.map((row) => {
-    const k = `${row.anioProceso}|${row.nivel ?? ""}`;
-    const e = eMap[k] ?? { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
+    const k = `${row.anioProceso}|${nivelKey(row.nivel)}`;
+    const e = byGroup.get(k) ?? { inicio: 0, pruebas: 0, observacion: 0, matricula: 0 };
     return {
       anio: row.anioProceso,
       nivel: row.nivel,
@@ -225,6 +225,10 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <FunnelViz stages={data.embudoGlobal} />
+          <p className="mt-3 text-xs text-slate-500">
+            Cada paso incluye a quien ya avanzó más adelante: si figura matrícula, también cuenta en inicio,
+            pruebas y observación, aunque no se hubiera marcado la casilla de inicio en el archivo.
+          </p>
         </div>
 
         {/* Comparativo anual */}
